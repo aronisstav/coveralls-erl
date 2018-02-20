@@ -38,6 +38,7 @@
 
 -export([ convert_file/4
         , convert_and_send_file/4
+        , convert_and_send_file/5
         ]).
 
 %%=============================================================================
@@ -72,13 +73,21 @@
 convert_file(Filenames, ServiceJobId, ServiceName, RepoToken) ->
   convert_file(Filenames, ServiceJobId, ServiceName, RepoToken, #s{}).
 
-%% @doc Import and convert cover files `Filenames' to a json string and send the
-%%      json to coveralls.
+%% @doc Call convert_and_send_file/5 using default parameters.
 %% @end
 -spec convert_and_send_file(string() | [string()], string(), string(),
                             string()) -> ok.
 convert_and_send_file(Filenames, ServiceJobId, ServiceName, RepoToken) ->
-  convert_and_send_file(Filenames, ServiceJobId, ServiceName, RepoToken, #s{}).
+  convert_and_send_file(Filenames, ServiceJobId, ServiceName, RepoToken, []).
+
+%% @doc Import and convert cover files `Filenames' to a json string and send the
+%%      json to coveralls. Individual steps can be overridden.
+%% @end
+-spec convert_and_send_file(string() | [string()], string(), string(),
+                            string(), [{atom(), fun()}]) -> ok.
+convert_and_send_file(Filenames, ServiceJobId, ServiceName, RepoToken, Opts) ->
+  S = override(Opts, #s{}),
+  send(convert_file(Filenames, ServiceJobId, ServiceName, RepoToken, S), S).
 
 %%=============================================================================
 %% Internal functions
@@ -105,9 +114,6 @@ convert_file([[_|_]|_]=Filenames, ServiceJobId, ServiceName, RepoToken0, S) ->
   lists:flatten(
     io_lib:format(Str, [ServiceJobId, ServiceName, ConvertedModules])).
 
-convert_and_send_file(Filenames, ServiceJobId, ServiceName, RepoToken, S) ->
-  send(convert_file(Filenames, ServiceJobId, ServiceName, RepoToken, S), S).
-
 send(Json, #s{poster=Poster, poster_init=Init}) ->
   ok       = Init(),
   Boundary = "----------" ++ integer_to_list(rand:uniform(1000)),
@@ -132,6 +138,20 @@ to_body(Json, Boundary) ->
 
 %%-----------------------------------------------------------------------------
 %% Callback mockery
+
+override([], S) -> S;
+override([{Field, Fun}|Rest], S) ->
+  NS =
+    case Field of
+      importer -> S#s{importer = Fun};
+      module_lister -> S#s{module_lister = Fun};
+      mod_info -> S#s{mod_info = Fun};
+      file_reader -> S#s{file_reader = Fun};
+      analyser -> S#s{analyser = Fun};
+      poster -> S#s{poster = Fun};
+      poster_init -> S#s{poster_init = Fun}
+    end,
+  override(Rest, NS).
 
 import(#s{importer=F}, File) -> F(File).
 
